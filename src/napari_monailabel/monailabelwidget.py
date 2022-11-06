@@ -139,6 +139,15 @@ class DatastoreModel(QAbstractTableModel):
         return None
 
 
+class TableView(QTableView):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # self.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.horizontalHeader().setStretchLastSection(True)
+        self.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.setSelectionMode(QAbstractItemView.SingleSelection)
+
+
 class BrushInteractor(QWidget):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -154,7 +163,7 @@ class ServerCtrl(QWidget):
         super().__init__(*args, **kwargs)
         self.url_ctrl = QLineEdit()
         self.connect_btn = QPushButton("Connect")
-        self.info_view = QTableView()
+        self.info_view = TableView()
 
         self.info_model = InfoModel()
         self.info_view.setModel(self.info_model)
@@ -229,12 +238,13 @@ class DatastoreView(QWidget):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.view = QTableView()
+        self.view = TableView()
         self.model = DatastoreModel()
 
         self.view.setModel(self.model)
         self.view.selectionModel().selectionChanged.connect(self._on_selection_changed)
         GuiClientInterface().server_changed.connect(self.model.on_server_changed)
+        self.model.modelReset.connect(self.view.resizeColumnsToContents)
 
         layout = QVBoxLayout()
         layout.addWidget(self.view)
@@ -279,9 +289,10 @@ class LogsView(QWidget):
 class ModelCtrl(QWidget):
     def __init__(self, name, model, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.labels_view = QTableView()
+        self.labels_view = TableView()
         self.labels_model = LabelsModel(name)
         self.labels_view.setModel(self.labels_model)
+        self.labels_view.resizeColumnsToContents()
 
         self.interactor = (
             PointInteractor()
@@ -290,6 +301,7 @@ class ModelCtrl(QWidget):
         )
 
         layout = QGridLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.labels_view)
         layout.addWidget(self.interactor)
         self.setLayout(layout)
@@ -466,6 +478,9 @@ class MonaiLabelWidget(QWidget):
 
     @Slot(str)
     def load_image(self, name: str, load_available_labels: bool = True):
+        if self._image_layer is not None and self._image_layer.name == name:
+            return
+
         client = GuiClientInterface().client
         img, spc = client.get_image(name)
         if self._image_layer is None:
