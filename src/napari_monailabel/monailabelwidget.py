@@ -645,7 +645,7 @@ class ServerMonitor(QObject):
         while self._run:
             self._handle_train()
             time.sleep(self.poll_interval)
-        self.stopped.emit()
+        self.monitor_stopped.emit()
 
     @Slot()
     def stop(self):
