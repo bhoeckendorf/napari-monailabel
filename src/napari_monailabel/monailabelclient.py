@@ -1,5 +1,6 @@
 import io
 from gzip import GzipFile
+from typing import Dict, List, Optional, Tuple
 
 import nibabel as nib
 import nrrd
@@ -8,9 +9,8 @@ import requests
 
 
 class MonaiLabelClient:
-
     def __init__(self):
-        self._url = None
+        self.url = None
         self._info = None
         self._datastore = None
 
@@ -18,23 +18,19 @@ class MonaiLabelClient:
         self._info = None
         self._datastore = None
 
-    def connect(self, url):
-        self._url = url
+    def set_server(self, url: str) -> bool:
+        self.url = url
         self._invalidate()
+        return self.is_connected()
+
+    def is_connected(self) -> bool:
+        return self.url is not None and isinstance(self.info, dict)
 
     @property
     def info(self):
         if self._info is None:
-            with requests.get(f"{self._url}/info") as r:
-                self._info = r.json()
+            self._info = self._request("GET", "info").json()
         return self._info
-
-    @property
-    def datastore(self):
-        if self._datastore is None:
-            with requests.get(f"{self._url}/datastore", params={"output": "all"}) as r:
-                self._datastore = r.json()
-        return self._datastore
 
     @property
     def name(self):
@@ -49,92 +45,175 @@ class MonaiLabelClient:
         return self.info["version"]
 
     @property
-    def labels(self):
+    def datastore(self):
+        if self._datastore is None:
+            self._datastore = self._request(
+                "GET", "datastore", params={"output": "all"}
+            ).json()
+        return self._datastore
+
+    def get_datastore_stats(self):
+        return self._request("GET", "datastore", params={"output": "stats"}).json()
+
+    @property
+    def labels(self) -> List[str]:
         return self.info["labels"]
 
     @property
     def models(self):
         return self.info["models"]
 
+    def get_model_type(self, model: str) -> str:
+        return self.models[model]["type"]
+
+    def get_model_labels(self, model: str) -> Dict[str, int]:
+        return self.models[model]["labels"]
+
     def get_image_info(self, name: str):
-        with requests.get(f"{self._url}/datastore/image/info", params={"image": name}) as r:
-            return r.json()
+        return self._request(
+            "GET", "datastore/image/info", params={"image": name}
+        ).json()
 
     def get_image(self, name: str):
         ext = self.datastore["objects"][name]["image"]["ext"]
-        with requests.get(f"{self._url}/datastore/image", params={"image": name}) as r:
-            return _load_image(r.content, ext)
+        r = self._request("GET", "datastore/image", params={"image": name})
+        return _load_image(r.content, ext)
 
     def get_label_info(self, name: str):
-        with requests.get(f"{self._url}/datastore/label/info", params={"label": name}) as r:
-            return r.json()
+        return self._request(
+            "GET", "datastore/label/info", params={"label": name}
+        ).json()
 
-    def get_label(self, name: str):
-        ext = self.datastore["objects"][name]["label"]["final"]["ext"]
-        with requests.get(f"{self._url}/datastore/label", params={"label": name}) as r:
-            return _load_image(r.content, ext)
+    def get_label(self, name: str, tag: str = "final"):
+        ext = self.datastore["objects"][name]["labels"][tag]["ext"]
+        r = self._request("GET", "datastore/label", params={"label": name, "tag": tag})
+        pixels, spacing = _load_image(r.content, ext)
+        if pixels.dtype != np.uint8:
+            pixels = pixels.astype(np.uint8)
+        return pixels, spacing
+
+    def get_available_labels(self, name: str):
+        return self.datastore["objects"][name]["labels"]
 
     def get_active_learning_sample(self, strategy="random"):
-        with requests.post(f"{self._url}/activelearning/{strategy}") as r:
-            return r.json()
+        return self._request("POST", f"activelearning/{strategy}").json()
 
     def infer(self, model: str, image: str):
         ext = self.datastore["objects"][image]["image"]["ext"]
-        assert ext == ".nrrd"
-        with requests.post(f"{self._url}/infer/{model}", params={"image": image, "output": "image"}) as r:
-            bytes = io.BufferedRandom(io.BytesIO(r.content))
-            header = nrrd.read_header(bytes)
-            msk = np.frombuffer(bytes.read(), dtype=np.float32)
-        msk = msk.reshape(*header["sizes"][::-1]).astype(np.uint8)
-        return msk, _get_nrrd_spacing(header)
+        r = self._request(
+            "POST", f"infer/{model}", params={"image": image, "output": "image"}
+        )
+        pixels, spacing = _load_image(r.content, ext)
+        if pixels.dtype != np.uint8:
+            pixels = pixels.astype(np.uint8)
+        return pixels, spacing
+
+    def training_start(self, model: str):
+        return self._request("POST", f"train/{model}").json()
+
+    def training_stop(self):
+        return self._request("DELETE", "train").json()
+
+    def is_training(self) -> bool:
+        with requests.request(
+            "GET", f"{self.url}/train", params={"all": True, "check_if_running": True}
+        ) as r:
+            if r.status_code == 200:
+                v = r.json()
+                return v["status"].lower() == "running"
+            elif r.status_code == 404:
+                return False
+
+    def training_status(self, all: bool = False, check_if_running: bool = True):
+        with requests.request(
+            "GET",
+            f"{self.url}/train",
+            params={"all": all, "check_if_running": check_if_running},
+        ) as r:
+            if r.status_code == 404:
+                return None
+            return r.json()
+
+    def get_logs(self, num_lines: int = 300, html: bool = False, refresh: int = 0):
+        return self._request(
+            "GET",
+            "logs",
+            params={
+                "lines": num_lines,
+                "html": html,
+                "text": not html,
+                "refresh": refresh,
+            },
+        ).text
+
+    def _request(self, method: str, endpoint: str, params: Optional[Dict] = None):
+        with requests.request(method, f"{self.url}/{endpoint}", params=params) as r:
+            if r.status_code == 200:
+                return r
+            raise ValueError(f"Server response error status code: {r.status_code}")
 
 
-def _nifti_version(bytes) -> int:
-    x = np.frombuffer(bytes.peek(4), dtype=np.int32, count=1)
-    for byteorder in ("<", ">"):
-        i = int(x.newbyteorder(byteorder))
-        if i == 348:
-            return 1
-        elif i == 540:
-            return 2
-        raise ValueError()
-
-
-def _load_nifti(bytes):
-    stream = GzipFile(fileobj=io.BufferedRandom(io.BytesIO(bytes)), mode="rb")
-    if _nifti_version(stream) == 2:
-        stream.seek(0)
-        header = nib.Nifti2Header.from_fileobj(stream)
-        stream.seek(0)
-        fh = nib.Nifti2Image.from_bytes(stream.read())
-    else:
-        stream.seek(0)
-        header = nib.Nifti1Header.from_fileobj(stream)
-        stream.seek(0)
-        fh = nib.Nifti1Image.from_bytes(stream.read())
-    spc = header["pixdim"][1:len(header.get_data_shape()) + 1][::-1]
-    pix = fh.dataobj.get_unscaled().transpose()
-    return pix, spc
-
-
-def _get_nrrd_spacing(header):
-    if "space directions" in header:
-        out = np.diag(header["space directions"])
-    else:
-        out = header["spacings"]
-    return out[::-1]
-
-
-def _load_nrrd(bytes):
-    buffer = io.BufferedRandom(io.BytesIO(bytes))
-    header = nrrd.read_header(buffer)
-    return nrrd.read_data(header, buffer, index_order="C"), _get_nrrd_spacing(header)
-
-
-def _load_image(bytes, ext):
+def _load_image(bytes: bytes, ext: str) -> Tuple[np.ndarray, np.ndarray]:
     ext = ext.strip().lower()
-    if ext == ".nii.gz":
-        return _load_nifti(bytes)
+    if ext in (".nii.gz", ".nii"):
+        return _load_nifti(bytes, ext)
     elif ext == ".nrrd":
         return _load_nrrd(bytes)
-    raise ValueError()
+    raise ValueError(f'Unsupported file format: "{ext}"')
+
+
+def _load_nifti(bytes: bytes, ext: str) -> Tuple[np.ndarray, np.ndarray]:
+    buffer = io.BufferedRandom(io.BytesIO(bytes))
+    if ext.endswith(".gz"):
+        buffer = GzipFile(fileobj=buffer, mode="rb")
+
+    version = None
+    x = np.frombuffer(buffer.peek(4), dtype=np.int32, count=1)
+    for byteorder in ("<", ">"):
+        v = int(x.newbyteorder(byteorder))
+        if v == 348:
+            version = 1
+            break
+        elif v == 540:
+            version = 2
+            break
+    if version is None:
+        raise ValueError("Could't determine NIFTI header version.")
+
+    if version == 2:
+        header = nib.Nifti2Header.from_fileobj(buffer)
+        buffer.seek(0)
+        fh = nib.Nifti2Image.from_bytes(buffer.read())
+    else:
+        header = nib.Nifti1Header.from_fileobj(buffer)
+        buffer.seek(0)
+        fh = nib.Nifti1Image.from_bytes(buffer.read())
+
+    spacing = header["pixdim"][1 : len(header.get_data_shape()) + 1]
+    pixels = fh.dataobj.get_unscaled()
+    return pixels.transpose(), spacing[::-1]
+
+
+def _load_nrrd(bytes: bytes) -> Tuple[np.ndarray, np.ndarray]:
+    buffer = io.BytesIO(bytes)
+
+    header = nrrd.read_header(buffer)
+    if "space directions" in header:
+        spacing = np.diag(header["space directions"])
+    else:
+        spacing = header["spacings"]
+    spacing = spacing[::-1]
+
+    try:
+        pixels = nrrd.read_data(header, buffer, index_order="C")
+    except io.UnsupportedOperation:
+        dtype = header["type"]
+        if dtype == "float":
+            dtype += "32"
+        elif dtype == "double":
+            dtype = "float"
+        pixels = np.frombuffer(buffer.read(), dtype=np.dtype(dtype)).reshape(
+            *header["sizes"][::-1]
+        )
+
+    return pixels, spacing
