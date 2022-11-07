@@ -679,13 +679,10 @@ class ServerMonitor(QObject):
 
             # This text pattern is logged 2x; for train, val phases.
             epochs_durations = re.findall(
-                r"Engine run complete\..+\n.* - Epoch\[(\d*)\] Complete\. Time taken: (.*)",
+                r"Epoch\[(\d*)\] Complete\. Time taken: (.*)",
                 details,
             )
-            if (
-                len(epochs_durations) < 2
-                or epochs_durations[-1][0] != epochs_durations[-2][0]
-            ):
+            if (len(epochs_durations) < 2):
                 return
 
             metric = float(
@@ -694,12 +691,16 @@ class ServerMonitor(QObject):
         except (AttributeError, IndexError):
             return
 
-        epoch, duration = epochs_durations[-1]
-        epoch = int(epoch)
+        epoch, duration = zip(*epochs_durations)
+
+        if not all(i == epoch[0] for i in epoch[1:]):
+            return
+        epoch = int(epoch[0])
         if epoch == self._last_epoch:
             return
 
         # Calculate mean epoch duration
+        duration = sorted(duration)[-1]
         h, m, s, us = map(
             int, re.match(r"(\d*):(\d{2}):(\d{2}).(\d*)", duration).groups()
         )
