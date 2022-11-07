@@ -7,7 +7,11 @@
 [![codecov](https://codecov.io/gh/bhoeckendorf/napari-monailabel/branch/main/graph/badge.svg)](https://codecov.io/gh/bhoeckendorf/napari-monailabel)
 [![napari hub](https://img.shields.io/endpoint?url=https://api.napari-hub.org/shields/napari-monailabel)](https://napari-hub.org/plugins/napari-monailabel)
 
-MONAI Label
+[MONAI Label](https://github.com/Project-MONAI/MONAILabel) client plugin for [napari].
+
+Currently experimental.
+
+![](https://github.com/bhoeckendorf/napari-monailabel/raw/main/doc/figures/main-screen.png)
 
 ----------------------------------
 
