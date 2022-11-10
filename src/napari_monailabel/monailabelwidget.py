@@ -4,6 +4,7 @@ import time
 from copy import deepcopy
 from typing import Any, Optional
 
+from natsort import natsorted
 import napari
 import numpy as np
 import requests.exceptions
@@ -104,20 +105,22 @@ class DatastoreModel(QAbstractTableModel):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.client = GuiClientInterface().client
-        self.row_headers = ("Name", "Labels")
+        self.column_headers = ("Name", "Labels")
+        self.objects = None
         self.row_items = tuple()
 
     @Slot()
     def on_server_changed(self):
         self.beginResetModel()
         try:
-            self.row_items = tuple(self.client.datastore["objects"].keys())
+            self.objects = self.client.datastore["objects"]
+            self.row_items = natsorted(self.objects.keys())
         except KeyError:
             self.row_items = tuple()
         self.endResetModel()
 
     def columnCount(self, parent: QModelIndex = ...) -> int:
-        return 2
+        return len(self.column_headers)
 
     def rowCount(self, parent: QModelIndex = ...) -> int:
         return len(self.row_items)
@@ -126,7 +129,7 @@ class DatastoreModel(QAbstractTableModel):
             self, section: int, orientation: Qt.Orientation, role: int = ...
     ) -> Any:
         if role == Qt.DisplayRole and orientation == Qt.Horizontal:
-            return self.row_headers[section]
+            return self.column_headers[section]
         return super().headerData(section, orientation, role)
 
     def data(self, index: QModelIndex, role: int = ...) -> Any:
@@ -135,7 +138,7 @@ class DatastoreModel(QAbstractTableModel):
             if index.column() == 0:
                 return image_name
             elif index.column() == 1:
-                return len(self.client.datastore["objects"][image_name]["labels"])
+                return ", ".join(natsorted(self.objects[image_name]["labels"].keys()))
         return None
 
 
