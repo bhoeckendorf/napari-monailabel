@@ -198,10 +198,12 @@ def _load_nrrd(bytes: bytes) -> Tuple[np.ndarray, np.ndarray]:
     buffer = io.BytesIO(bytes)
 
     header = nrrd.read_header(buffer)
-    if "space directions" in header:
+    if "spacings" in header:
+        spacing = header["spacings"]
+    elif "space directions" in header:
         spacing = np.diag(header["space directions"])
     else:
-        spacing = header["spacings"]
+        spacing = np.ones(header["dimension"])
     spacing = spacing[::-1]
 
     try:
