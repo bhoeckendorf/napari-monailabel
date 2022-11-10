@@ -241,15 +241,22 @@ class DatastoreView(QWidget):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.filter_ctrl = QLineEdit()
+        self.filter_ctrl.setPlaceholderText("Filter ...")
         self.view = TableView()
+        self.view.setSortingEnabled(True)
         self.model = DatastoreModel()
+        self.proxy_model = QSortFilterProxyModel()
+        self.proxy_model.setSourceModel(self.model)
 
-        self.view.setModel(self.model)
+        self.view.setModel(self.proxy_model)
         self.view.selectionModel().selectionChanged.connect(self._on_selection_changed)
+        self.filter_ctrl.textChanged.connect(self.proxy_model.setFilterWildcard)
         GuiClientInterface().server_changed.connect(self.model.on_server_changed)
         self.model.modelReset.connect(self.view.resizeColumnsToContents)
 
         layout = QVBoxLayout()
+        layout.addWidget(self.filter_ctrl)
         layout.addWidget(self.view)
         self.setLayout(layout)
 
