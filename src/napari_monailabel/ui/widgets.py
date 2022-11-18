@@ -8,26 +8,9 @@ from qtpy.QtGui import *
 from qtpy.QtWidgets import *
 
 from ..client import MonaiLabelInterface as MonaiLabel
+from .model import ModelView
 from .qitemmodels import *
-
-
-class TableView(QTableView):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # self.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.horizontalHeader().setStretchLastSection(True)
-        self.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.setSelectionMode(QAbstractItemView.SingleSelection)
-
-
-class BrushInteractor(QWidget):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-
-class PointInteractor(QWidget):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+from .qitemviews import *
 
 
 class ServerCtrl(QWidget):
@@ -165,30 +148,6 @@ class LogsView(QWidget):
         self.view.setPlainText(logs)
 
 
-class ModelCtrl(QWidget):
-    def __init__(self, name, model, trainer, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.name = name
-        self.model = model
-        self.trainer = trainer
-        self.labels_view = TableView()
-        self.labels_model = LabelsModel(name)
-        self.labels_view.setModel(self.labels_model)
-        self.labels_view.resizeColumnsToContents()
-
-        self.interactor = (
-            PointInteractor()
-            if MonaiLabel().client.get_model_type(name) == "deepedit"
-            else BrushInteractor()
-        )
-
-        layout = QGridLayout()
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.labels_view)
-        layout.addWidget(self.interactor)
-        self.setLayout(layout)
-
-
 class ModelsCtrl(QWidget):
     inference_requested = Signal(str)
     training_start_requested = Signal(str)
@@ -269,14 +228,14 @@ class ModelsCtrl(QWidget):
             models = {}
             trainers = {}
         for name in reversed(models.keys()):
-            item = ModelCtrl(name, models[name], trainers.get(name, None))
+            item = ModelView(name, None, models[name], trainers.get(name, None))
             self.insert_item(item, name)
         if self.model_selector.count() > 0:
             self.model_selector.setCurrentIndex(0)
 
     def _on_model_selection_changed(self, index: int):
         model_ctrl = self.stacked_layout.widget(index)
-        self.model_type_view.setText(model_ctrl.name)
+        self.model_type_view.setText(model_ctrl.type)
         self._set_trainable(model_ctrl.trainer is not None)
         stats = MonaiLabel().client.info["train_stats"]
         if model_ctrl.name in stats:
@@ -326,6 +285,7 @@ class ModelsCtrl(QWidget):
         self.train_progress_view.setValue(0)
         self.train_eta_view.setText("")
         # self.infer_btn.setEnabled(True)
+
 
     @Slot(int, int, datetime.datetime, float)
     def on_training_progress(
