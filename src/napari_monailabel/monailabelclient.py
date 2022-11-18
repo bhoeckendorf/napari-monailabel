@@ -69,6 +69,10 @@ class MonaiLabelClient:
     def get_model_labels(self, model: str) -> Dict[str, int]:
         return self.models[model]["labels"]
 
+    @property
+    def trainers(self):
+        return self.info["trainers"]
+
     def get_image_info(self, name: str):
         return self._request(
             "GET", "datastore/image/info", params={"image": name}

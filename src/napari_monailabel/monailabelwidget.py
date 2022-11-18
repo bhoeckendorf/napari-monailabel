@@ -297,8 +297,11 @@ class LogsView(QWidget):
 
 
 class ModelCtrl(QWidget):
-    def __init__(self, name, model, *args, **kwargs):
+    def __init__(self, name, model, trainer, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.name = name
+        self.model = model
+        self.trainer = trainer
         self.labels_view = TableView()
         self.labels_model = LabelsModel(name)
         self.labels_view.setModel(self.labels_model)
@@ -342,7 +345,7 @@ class ModelsCtrl(QWidget):
         self.model_selector.currentIndexChanged.connect(
             self.stacked_layout.setCurrentIndex
         )
-        self.model_selector.currentTextChanged.connect(self._on_model_selection_changed)
+        self.model_selector.currentIndexChanged.connect(self._on_model_selection_changed)
         self.infer_btn.clicked.connect(self._on_infer)
         self.train_btn.clicked.connect(self._on_train)
         GuiClientInterface().server_changed.connect(self.on_server_changed)
@@ -358,6 +361,8 @@ class ModelsCtrl(QWidget):
         btn_layout.addWidget(self.infer_btn)
         btn_layout.addWidget(self.train_btn)
 
+        self.train_progress_label = QLabel("Training progress")
+        self.train_eta_label = QLabel("Estimated completion")
         layout = QGridLayout()
         layout.addWidget(QLabel("Model"), 0, 0)
         layout.addWidget(self.model_selector, 0, 1)
@@ -365,9 +370,9 @@ class ModelsCtrl(QWidget):
         layout.addWidget(self.model_type_view, 1, 1)
         layout.addWidget(QLabel("Accuracy"), 2, 0)
         layout.addWidget(self.metric_view, 2, 1)
-        layout.addWidget(QLabel("Training progress"), 3, 0)
+        layout.addWidget(self.train_progress_label, 3, 0)
         layout.addWidget(self.train_progress_view, 3, 1)
-        layout.addWidget(QLabel("Estimated completion"), 4, 0)
+        layout.addWidget(self.train_eta_label, 4, 0)
         layout.addWidget(self.train_eta_view, 4, 1)
         layout.addLayout(btn_layout, 5, 0, 1, 2)
         layout.addLayout(self.stacked_layout, 6, 0, 1, 2)
@@ -392,25 +397,37 @@ class ModelsCtrl(QWidget):
             _ = self.remove_item()
         try:
             models = GuiClientInterface().client.models
+            trainers = GuiClientInterface().client.trainers
         except KeyError:
             models = {}
-        for i, (name, model) in enumerate(reversed(models.items())):
-            item = ModelCtrl(name, model)
+            trainers = {}
+        for name in reversed(models.keys()):
+            item = ModelCtrl(name, models[name], trainers.get(name, None))
             self.insert_item(item, name)
         if self.model_selector.count() > 0:
             self.model_selector.setCurrentIndex(0)
 
-    def _on_model_selection_changed(self, model: str):
-        if len(model) == 0:
-            return
-        self.model_type_view.setText(GuiClientInterface().client.get_model_type(model))
+    def _on_model_selection_changed(self, index: int):
+        model_ctrl = self.stacked_layout.widget(index)
+        self.model_type_view.setText(model_ctrl.name)
+        self._set_trainable(model_ctrl.trainer is not None)
         stats = GuiClientInterface().client.info["train_stats"]
-        if model in stats:
-            stats = stats[model]
+        if model_ctrl.name in stats:
+            stats = stats[model_ctrl.name]
             if "best_metric" in stats:
                 self.metric_view.setValue(int(round(stats["best_metric"] * 100)))
                 return
         self.metric_view.setValue(0)
+
+    def _set_trainable(self, state: bool):
+        for i in (
+            self.train_btn,
+            self.train_progress_view,
+            self.train_eta_view,
+            self.train_progress_label,
+            self.train_eta_label
+        ):
+            i.setVisible(state)
 
     def _on_infer(self):
         model = self.model_selector.currentText()
