@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 from magicgui import magic_factory
 from qtpy.QtWidgets import *
 from qtpy.QtCore import *
-from .monailabelwidget import MonaiLabelWidget
+from .ui import MonaiLabelWidget
 
 if TYPE_CHECKING:
     import napari

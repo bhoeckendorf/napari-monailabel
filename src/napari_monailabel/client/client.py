@@ -146,8 +146,8 @@ class MonaiLabelClient:
                 "lines": num_lines,
                 "html": html,
                 "text": not html,
-                "refresh": refresh,
-            },
+                "refresh": refresh
+            }
         ).text
 
     def _request(self, method: str, endpoint: str, params: Optional[Dict] = None):
